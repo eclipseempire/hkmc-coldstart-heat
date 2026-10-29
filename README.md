@@ -108,6 +108,19 @@ tools/make_package.sh                        # builds dist/coldstart.heat.zip + 
 - Built on [**NEMESIS**](https://github.com/xwtk/hmg_nemesis) by Gor Mirzoyan (xwtk) — the head-unit debugging/execution framework this package runs under.
 - Detection pattern inspired by [dibble9012/hkmc-carplay-auto-display](https://github.com/dibble9012/hkmc-carplay-auto-display).
 
+## Extending it
+
+Want to add ventilated seats, rear seats, or another function? See
+**[EXTENDING.md](EXTENDING.md)** — a full lessons-learned + discovery guide
+(for humans and AI agents), including the reverse-engineering recipe, a verified
+service-call reference, the `tools/dexodex.py` analysis tool, a capture-probe
+template, and a concrete starting block for **ventilated seats** (it's almost
+certainly the same `usm 213/214` calls with different enum values — the vent
+levels just need capturing on a vent-equipped car).
+
+Heads-up for anyone forking: the service interface is **trim/firmware-dependent**
+(this build has no ventilated-seat methods at all), so re-derive on your own unit.
+
 ## License
 
 [MIT](LICENSE) — do what you like, no warranty. Contributions welcome; if you confirm it on another Gen5W model/firmware, please open an issue or PR with the details.
