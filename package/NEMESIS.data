@@ -1,0 +1,19 @@
+[nemesis]
+version=1.2
+id=coldstart.heat
+name=Cold-start Heat
+types=application,service
+postinstall=scripts/post.sh
+
+[app.0]
+kind=apk
+path=app/coldstart.apk
+package=com.nemesis.coldstart
+component=com.nemesis.coldstart/.MainActivity
+
+[service.0]
+name=apply
+kind=sh
+path=svc/coldstart.sh
+uid=root
+mode=background
