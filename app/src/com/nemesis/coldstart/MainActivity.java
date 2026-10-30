@@ -30,9 +30,10 @@ public class MainActivity extends Activity {
     boolean wheel = true;
     int seatDrv = 0;          // 0..3
     int seatPass = 0;         // 0..3
+    boolean uiTempIsC = false; // dashboard shows Celsius (affects fallback temp source)
 
     TextView thrLabel, statusLabel;
-    Button enBtn, wheelBtn, drvBtn, passBtn;
+    Button enBtn, wheelBtn, drvBtn, passBtn, unitBtn;
 
     @Override
     protected void onCreate(Bundle b) {
@@ -72,6 +73,15 @@ public class MainActivity extends Activity {
             public void onStopTrackingTouch(SeekBar s) {}
         });
         root.addView(sb);
+
+        unitBtn = new Button(this);
+        unitBtn.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) { uiTempIsC = !uiTempIsC; refresh(); }
+        });
+        root.addView(unitBtn);
+        root.addView(hint("Set this to match the unit your dashboard shows. If your "
+                + "car reports outside temp in Celsius, leaving this on °F makes the "
+                + "heaters fire every start."));
 
         root.addView(gap());
         root.addView(section("Heaters to turn on"));
@@ -125,13 +135,17 @@ public class MainActivity extends Activity {
         refresh();
     }
 
-    void updateThr() { thrLabel.setText("Trigger below:  " + thresholdF + " °F"); }
+    void updateThr() {
+        int c = Math.round((thresholdF - 32) * 5f / 9f);
+        thrLabel.setText("Trigger below:  " + thresholdF + " °F  (" + c + " °C)");
+    }
 
     void refresh() {
         enBtn.setText(enabled ? "Automation: ON" : "Automation: OFF");
         wheelBtn.setText("Steering wheel:  " + (wheel ? "ON" : "off"));
         drvBtn.setText("Driver seat:  " + SEAT[seatDrv]);
         passBtn.setText("Passenger seat:  " + SEAT[seatPass]);
+        unitBtn.setText("My dashboard shows:  " + (uiTempIsC ? "°C" : "°F"));
         updateThr();
     }
 
@@ -161,6 +175,7 @@ public class MainActivity extends Activity {
         wheel     = readInt("wheel", 1) == 1;
         seatDrv   = clamp(readInt("seat_drv", 0), 0, 3);
         seatPass  = clamp(readInt("seat_pass", 0), 0, 3);
+        uiTempIsC = readInt("ui_temp_is_c", 0) == 1;
     }
 
     void saveConfig() {
@@ -169,12 +184,14 @@ public class MainActivity extends Activity {
             + "; echo " + thresholdF + " > " + STATE + "/threshold_f"
             + "; echo " + (wheel ? 1 : 0) + " > " + STATE + "/wheel"
             + "; echo " + seatDrv + " > " + STATE + "/seat_drv"
-            + "; echo " + seatPass + " > " + STATE + "/seat_pass";
+            + "; echo " + seatPass + " > " + STATE + "/seat_pass"
+            + "; echo " + (uiTempIsC ? 1 : 0) + " > " + STATE + "/ui_temp_is_c";
         String r = runRoot(cmd);
         if (r.startsWith("ERR")) toast("Save failed: " + r);
         else { toast("Saved"); statusLabel.setText("Saved: below " + thresholdF
             + "°F → wheel " + (wheel ? "on" : "off")
-            + ", drv " + SEAT[seatDrv] + ", pass " + SEAT[seatPass]); }
+            + ", drv " + SEAT[seatDrv] + ", pass " + SEAT[seatPass]
+            + "  [dash " + (uiTempIsC ? "°C" : "°F") + "]"); }
     }
 
     // UI level 1/2/3 (Low/Med/High) -> seat enum 6/7/8 ; else 2 (off)

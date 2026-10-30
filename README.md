@@ -13,7 +13,8 @@ No more reaching for the seat and wheel buttons on a frosty morning. Start the c
 - **Steering wheel + both front seats** — each independently configurable. Seats support **Low / Med / High**.
 - **On-screen settings app**, launched from the NEMESIS Manager:
   - Automation on/off
-  - Temperature threshold (°F)
+  - Temperature threshold (°F, with the °C equivalent shown)
+  - **Dashboard unit (°F / °C)** — so cars that display Celsius read the temperature correctly
   - Steering wheel on/off
   - Driver seat: Off / Low / Med / High
   - Passenger seat: Off / Low / Med / High
@@ -51,6 +52,7 @@ adb shell nemesis install /data/local/tmp/coldstart.heat.zip
 Open the NEMESIS Manager → **Packages** → **Cold-start Heat** → **Launch**.
 
 - Set the **temperature threshold** (the heaters come on when the outside temp is *below* this), toggle the **steering wheel**, and pick a level for each **seat**.
+- Set **My dashboard shows** to match your cluster's unit (**°F** or **°C**). This matters on cars whose firmware reports the outside temperature in the dash unit — if yours shows Celsius and this is left on °F, the heaters will fire on every start. The threshold itself is always entered in °F (the °C equivalent is shown next to it).
 - Tap **Save** to store your preferences.
 - Tap **Test now** to apply them immediately (ignores temperature) — good for confirming it works.
 - Tap **All off** to switch everything back off.
@@ -68,7 +70,12 @@ nemesis root -c "echo 1  > $S/wheel"         # steering wheel: 1 on / 0 off
 nemesis root -c "echo 3  > $S/seat_drv"      # driver seat:    0 off / 1 low / 2 med / 3 high
 nemesis root -c "echo 0  > $S/seat_pass"     # passenger seat: 0 off / 1 low / 2 med / 3 high
 nemesis root -c "echo 1  > $S/enabled"       # master on/off
+nemesis root -c "echo 1  > $S/ui_temp_is_c"  # set 1 if your DASH shows Celsius (0 = Fahrenheit)
 ```
+
+### Celsius cars
+
+The service prefers the raw temperature sensor (always Celsius, converted internally), so most cars need no change. But on some firmwares that reading isn't logged and the service falls back to the **dashboard** temperature, which is in whatever unit your cluster displays. If your dash is in **Celsius**, set `ui_temp_is_c=1` (or flip **My dashboard shows** to °C in the app) so a reading like `8` is understood as 8 °C (46 °F), not 8 °F. Left on Fahrenheit, a Celsius car reads every mild day as freezing and the heaters fire on every start.
 
 Logs: `nemesis log service coldstart.heat/apply`.
 

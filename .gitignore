@@ -1,6 +1,7 @@
 # build outputs
 app/build/
 app/coldstart.apk
+app/*.idsig
 package/app/coldstart.apk
 
 # signing keys - never commit

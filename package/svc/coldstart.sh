@@ -8,7 +8,11 @@
 #   drv seat:   service call com.hkmc.micom.usm 213 i32 <enum> (setFrontSeatHeatDrvStep)
 #   pass seat:  service call com.hkmc.micom.usm 214 i32 <enum> (setFrontSeatHeatAstStep)
 #   seat enum:  2=Off 6=Low 7=Med 8=High ; config level 1/2/3 maps to 6/7/8
-# Outside temp (deg C) from logcat ECO JSON "outTemperature"; F = C*9/5+32.
+# Outside temp from logcat: preferred source is the ECO JSON "outTemperature"
+# (always deg C, unit-independent of the dash). Fallback is the dashboard temp
+# "setOutsideTempUIAdvanced::temp", which is in the DASH DISPLAY UNIT - so if the
+# car shows Celsius, set ui_temp_is_c=1 and we convert it (otherwise a Celsius
+# reading like 8 is misread as 8F and the heaters fire every start). F=C*9/5+32.
 #
 # Runs once per boot (mode=background). TEST WHILE PARKED.
 export PATH=/data/nemesis/bin:/sbin:/vendor/bin:/system/sbin:/system/bin:/system/xbin
@@ -28,9 +32,10 @@ THRESH_F=$(cfg threshold_f 50)
 WHEEL=$(cfg wheel 1)          # 0/1
 SEAT_DRV=$(cfg seat_drv 0)    # 0..3
 SEAT_PASS=$(cfg seat_pass 0)  # 0..3
+UI_IS_C=$(cfg ui_temp_is_c 0) # 1 if the dashboard shows Celsius (fallback temp source)
 MAX_WAIT=$(cfg max_wait 120)
 
-log "start enabled=$ENABLED threshold_f=$THRESH_F wheel=$WHEEL drv=$SEAT_DRV pass=$SEAT_PASS"
+log "start enabled=$ENABLED threshold_f=$THRESH_F wheel=$WHEEL drv=$SEAT_DRV pass=$SEAT_PASS ui_is_c=$UI_IS_C"
 if [ "$ENABLED" != "1" ]; then log "disabled; no action"; exit 0; fi
 
 # wait for the VR service (framework up)
@@ -58,9 +63,14 @@ while [ "$i" -lt "$MAX_WAIT" ]; do
     esac
     _line=$(last_match 'setOutsideTempUIAdvanced::temp =')
     case "$_line" in *'temp = '*)
-        _f=${_line#*temp = }; _f=${_f%% *}; _f=${_f%%.*}
-        case "$_f" in ''|*[!0-9-]*) ;; *)
-            if [ "$_f" -ge -58 ] && [ "$_f" -le 140 ]; then TEMP_F=$_f; log "ui outside=${TEMP_F}F"; break; fi ;;
+        _v=${_line#*temp = }; _v=${_v%% *}; _v=${_v%%.*}
+        case "$_v" in ''|*[!0-9-]*) ;; *)
+            if [ "$UI_IS_C" = "1" ]; then
+                # dashboard shows Celsius -> this value is Celsius
+                if [ "$_v" -ge -50 ] && [ "$_v" -le 60 ]; then TEMP_F=$(( _v * 9 / 5 + 32 )); log "ui outside=${_v}C=${TEMP_F}F"; break; fi
+            else
+                if [ "$_v" -ge -58 ] && [ "$_v" -le 140 ]; then TEMP_F=$_v; log "ui outside=${TEMP_F}F"; break; fi
+            fi ;;
         esac ;;
     esac
     sleep 3; i=$((i + 3))
