@@ -36,7 +36,7 @@ if [ "$ENABLED" != "1" ]; then log "disabled; no action"; exit 0; fi
 # wait for the VR service (framework up)
 i=0
 while [ "$i" -lt "$MAX_WAIT" ]; do
-    service check com.hkmc.vr 2>/dev/null | grep -q found && { log "vr ready"; break; }
+    service check com.hkmc.vr 2>/dev/null | grep -q ': found' && { log "vr ready"; break; }
     sleep 2; i=$((i + 2))
 done
 
