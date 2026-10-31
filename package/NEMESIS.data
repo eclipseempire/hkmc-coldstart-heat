@@ -1,5 +1,5 @@
 [nemesis]
-version=1.3.0
+version=1.4.0
 id=coldstart.heat
 name=Cold-start Heat
 types=application,service

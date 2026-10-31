@@ -19,6 +19,7 @@ No more reaching for the seat and wheel buttons on a frosty morning. Start the c
   - Driver seat: Off / Low / Med / High
   - Passenger seat: Off / Low / Med / High
   - **Test now** (apply immediately, ignoring temperature) and **All off**
+  - **Diagnostic logging** (off by default) — see [Diagnostics](#diagnostics)
 - **No app required to run** — the boot service reads plain config files; the app is just a friendly editor for them.
 
 ## Compatibility
@@ -71,6 +72,7 @@ nemesis root -c "echo 3  > $S/seat_drv"      # driver seat:    0 off / 1 low / 2
 nemesis root -c "echo 0  > $S/seat_pass"     # passenger seat: 0 off / 1 low / 2 med / 3 high
 nemesis root -c "echo 1  > $S/enabled"       # master on/off
 nemesis root -c "echo 1  > $S/ui_temp_is_c"  # set 1 if your DASH shows Celsius (0 = Fahrenheit)
+nemesis root -c "echo 1  > $S/diag"          # 1 = write a troubleshooting log (0 = off, default)
 ```
 
 ### Celsius cars
@@ -78,6 +80,28 @@ nemesis root -c "echo 1  > $S/ui_temp_is_c"  # set 1 if your DASH shows Celsius 
 The service prefers the raw temperature sensor (always Celsius, converted internally), so most cars need no change. But on some firmwares that reading isn't logged and the service falls back to the **dashboard** temperature, which is in whatever unit your cluster displays. If your dash is in **Celsius**, set `ui_temp_is_c=1` (or flip **My dashboard shows** to °C in the app) so a reading like `8` is understood as 8 °C (46 °F), not 8 °F. Left on Fahrenheit, a Celsius car reads every mild day as freezing and the heaters fire on every start.
 
 Logs: `nemesis log service coldstart.heat/apply`.
+
+## Diagnostics
+
+If the heaters ever fire when they shouldn't (or don't fire when they should), turn on diagnostic logging to see exactly what the service read and decided. It's **off by default** and adds no overhead when off.
+
+1. In the settings app, under **Diagnostics (advanced)**, set **Diagnostic logging: ON** and tap **Save**.
+2. Drive as normal. Each start appends a timestamped block to `/data/nemesis/state/coldstart.heat/diag.log` — the recent outside-temp readings (with timestamps), which source was used, and the fire/no-fire decision.
+3. Retrieve the log:
+   - **No computer needed:** insert a FAT32 USB stick, then either start the car (the log auto-copies to the stick as `coldstart-diag.log`) or tap **Copy diag log to USB** in the app.
+   - **ADB:** `adb shell nemesis root -c "cat /data/nemesis/state/coldstart.heat/diag.log"`
+
+A block looks like:
+
+```
+RUN wall=2026-11-01 07:14:03 uptime=22s
+-- last 6 raw outTemperature lines (deg C, newest last) --
+   11-01 07:13:58.441 ... "outTemperature":8 ...
+USED ... -> 46F  (threshold 50F)
+outside 46F < 50F -> applying heaters
+```
+
+That tells you whether the service read a different (or stale) value than what the dashboard showed. Turn it back **off** when you're done.
 
 ## How it works
 

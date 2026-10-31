@@ -31,9 +31,10 @@ public class MainActivity extends Activity {
     int seatDrv = 0;          // 0..3
     int seatPass = 0;         // 0..3
     boolean uiTempIsC = false; // dashboard shows Celsius (affects fallback temp source)
+    boolean diag = false;      // optional persistent diagnostic logging (default off)
 
     TextView thrLabel, statusLabel;
-    Button enBtn, wheelBtn, drvBtn, passBtn, unitBtn;
+    Button enBtn, wheelBtn, drvBtn, passBtn, unitBtn, diagBtn;
 
     @Override
     protected void onCreate(Bundle b) {
@@ -105,6 +106,23 @@ public class MainActivity extends Activity {
         root.addView(passBtn);
 
         root.addView(gap());
+        root.addView(section("Diagnostics (advanced)"));
+        diagBtn = new Button(this);
+        diagBtn.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) { diag = !diag; refresh(); }
+        });
+        root.addView(diagBtn);
+        root.addView(hint("Off by default. When on, each start records the temperature "
+                + "it read, the source, and the fire/no-fire decision to a log — useful "
+                + "if the heaters trigger when they shouldn't. Save after changing."));
+        Button copy = new Button(this);
+        copy.setText("Copy diag log to USB");
+        copy.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) { copyLogToUsb(); }
+        });
+        root.addView(copy);
+
+        root.addView(gap());
         Button save = new Button(this);
         save.setText("Save");
         save.setOnClickListener(new View.OnClickListener() {
@@ -146,6 +164,7 @@ public class MainActivity extends Activity {
         drvBtn.setText("Driver seat:  " + SEAT[seatDrv]);
         passBtn.setText("Passenger seat:  " + SEAT[seatPass]);
         unitBtn.setText("My dashboard shows:  " + (uiTempIsC ? "°C" : "°F"));
+        diagBtn.setText("Diagnostic logging:  " + (diag ? "ON" : "off"));
         updateThr();
     }
 
@@ -176,6 +195,7 @@ public class MainActivity extends Activity {
         seatDrv   = clamp(readInt("seat_drv", 0), 0, 3);
         seatPass  = clamp(readInt("seat_pass", 0), 0, 3);
         uiTempIsC = readInt("ui_temp_is_c", 0) == 1;
+        diag      = readInt("diag", 0) == 1;
     }
 
     void saveConfig() {
@@ -185,13 +205,14 @@ public class MainActivity extends Activity {
             + "; echo " + (wheel ? 1 : 0) + " > " + STATE + "/wheel"
             + "; echo " + seatDrv + " > " + STATE + "/seat_drv"
             + "; echo " + seatPass + " > " + STATE + "/seat_pass"
-            + "; echo " + (uiTempIsC ? 1 : 0) + " > " + STATE + "/ui_temp_is_c";
+            + "; echo " + (uiTempIsC ? 1 : 0) + " > " + STATE + "/ui_temp_is_c"
+            + "; echo " + (diag ? 1 : 0) + " > " + STATE + "/diag";
         String r = runRoot(cmd);
         if (r.startsWith("ERR")) toast("Save failed: " + r);
         else { toast("Saved"); statusLabel.setText("Saved: below " + thresholdF
             + "°F → wheel " + (wheel ? "on" : "off")
             + ", drv " + SEAT[seatDrv] + ", pass " + SEAT[seatPass]
-            + "  [dash " + (uiTempIsC ? "°C" : "°F") + "]"); }
+            + "  [dash " + (uiTempIsC ? "°C" : "°F") + ", diag " + (diag ? "on" : "off") + "]"); }
     }
 
     // UI level 1/2/3 (Low/Med/High) -> seat enum 6/7/8 ; else 2 (off)
@@ -216,6 +237,24 @@ public class MainActivity extends Activity {
               + "service call com.hkmc.micom.usm 214 i32 2");
         statusLabel.setText("All heaters commanded off.");
         toast("Off");
+    }
+
+    // copy diag.log onto a plugged-in USB stick (for users without ADB)
+    void copyLogToUsb() {
+        String cmd = "L=" + STATE + "/diag.log; [ -f \"$L\" ] || { echo NOLOG; exit 0; }; "
+            + "for u in /storage/usb0 /storage/usb1 /mnt/media_rw/usb0 /mnt/usbhost0; do "
+            + "[ -d \"$u\" ] && cp \"$L\" \"$u/coldstart-diag.log\" 2>/dev/null && { echo COPIED $u; break; }; done";
+        String r = runRoot(cmd).trim();
+        if (r.startsWith("COPIED")) {
+            toast("Log copied to USB");
+            statusLabel.setText("diag.log copied to " + r.substring(6).trim() + " as coldstart-diag.log");
+        } else if (r.startsWith("NOLOG")) {
+            toast("No log yet");
+            statusLabel.setText("No diag.log yet. Turn Diagnostic logging ON, Save, then start the car once.");
+        } else {
+            toast("No USB found");
+            statusLabel.setText("No USB stick detected. Insert a FAT32 stick and try again.");
+        }
     }
 
     // ---- small view helpers --------------------------------------------
