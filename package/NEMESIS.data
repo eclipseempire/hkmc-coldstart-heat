@@ -1,8 +1,12 @@
 [nemesis]
-version=1.4.0
+version=1.1
 id=coldstart.heat
 name=Cold-start Heat
-types=application,service
+type=application,service
+package-version=1.4.1
+short-desc="Auto heated wheel + seats on cold start"
+os="*.260507"
+models=any
 postinstall=scripts/post.sh
 
 [app.0]
