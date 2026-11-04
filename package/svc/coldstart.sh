@@ -9,10 +9,12 @@
 #   pass seat:  service call com.hkmc.micom.usm 214 i32 <enum> (setFrontSeatHeatAstStep)
 #   seat enum:  2=Off 6=Low 7=Med 8=High ; config level 1/2/3 maps to 6/7/8
 # Outside temp from logcat: preferred source is the ECO JSON "outTemperature"
-# (always deg C, unit-independent of the dash). Fallback is the dashboard temp
-# "setOutsideTempUIAdvanced::temp", which is in the DASH DISPLAY UNIT - so if the
-# car shows Celsius, set ui_temp_is_c=1 and we convert it (otherwise a Celsius
-# reading like 8 is misread as 8F and the heaters fire every start). F=C*9/5+32.
+# (always deg C). Fallback is the dashboard temp line
+# "setOutsideTempUIAdvanced::temp = X / tempunit = Y". tempunit gives BOTH the
+# unit and validity: 2=Fahrenheit, 1=Celsius, -1/0=NOT READY (early-boot
+# sentinel, temp reads -1.0). We reject the sentinel and keep waiting - reading
+# -1 as -1F is what made the heaters fire on warm mornings. If a firmware omits
+# tempunit we fall back to the ui_temp_is_c config. F=C*9/5+32.
 #
 # Runs once per boot (mode=background). TEST WHILE PARKED.
 #
@@ -65,21 +67,18 @@ while [ "$i" -lt "$MAX_WAIT" ]; do
     sleep 2; i=$((i + 2))
 done
 
-# diagnostics: record the recent temp history with timestamps (stale vs fresh)
-if [ "$DIAG_ON" = "1" ]; then
-    SNAP=$STATE/diag.snap
-    logcat -d -v time > "$SNAP" 2>/dev/null
-    D "-- last 6 raw outTemperature lines (deg C, newest last) --"
-    grep '"outTemperature":' "$SNAP" 2>/dev/null | tail -6 | while IFS= read -r _x; do D "   $_x"; done
-    D "-- last 6 dashboard setOutsideTempUIAdvanced lines (dash unit, newest last) --"
-    grep 'setOutsideTempUIAdvanced::temp =' "$SNAP" 2>/dev/null | tail -6 | while IFS= read -r _x; do D "   $_x"; done
-fi
-
-# newest valid outside temp -> Fahrenheit
-last_match() { _h=$(logcat -d 2>/dev/null | grep "$1"); _l=""; while IFS= read -r _x; do [ -n "$_x" ] && _l=$_x; done <<EOF
+# newest matching line from the live log, with timestamp.
+# tail-free on purpose: this head unit's shell has no `tail`.
+last_match() { _h=$(logcat -d -v time 2>/dev/null | grep "$1"); _l=""; while IFS= read -r _x; do [ -n "$_x" ] && _l=$_x; done <<EOF
 $_h
 EOF
 echo "$_l"; }
+
+# diagnostics: record the newest line from each source (with its timestamp)
+if [ "$DIAG_ON" = "1" ]; then
+    D "newest raw outTemperature:  $(last_match '"outTemperature":')"
+    D "newest dashboard temp line: $(last_match 'setOutsideTempUIAdvanced::temp =')"
+fi
 
 TEMP_F=""
 i=0
@@ -94,14 +93,25 @@ while [ "$i" -lt "$MAX_WAIT" ]; do
     _line=$(last_match 'setOutsideTempUIAdvanced::temp =')
     case "$_line" in *'temp = '*)
         _v=${_line#*temp = }; _v=${_v%% *}; _v=${_v%%.*}
-        case "$_v" in ''|*[!0-9-]*) ;; *)
-            if [ "$UI_IS_C" = "1" ]; then
-                # dashboard shows Celsius -> this value is Celsius
-                if [ "$_v" -ge -50 ] && [ "$_v" -le 60 ]; then TEMP_F=$(( _v * 9 / 5 + 32 )); log "ui outside=${_v}C=${TEMP_F}F"; break; fi
+        _u=x; case "$_line" in *'tempunit = '*) _u=${_line##*tempunit = }; _u=${_u%% *}; _u=${_u%%.*};; esac
+        case "$_u" in ''|*[!0-9-]*) _u=x;; esac
+        case "$_v" in ''|*[!0-9-]*) _v=x;; esac
+        if [ "$_v" = "x" ]; then
+            :                                           # unparseable; keep waiting
+        elif [ "$_u" = "1" ]; then                      # tempunit 1 = Celsius
+            if [ "$_v" -ge -45 ] && [ "$_v" -le 60 ]; then TEMP_F=$(( _v * 9 / 5 + 32 )); log "ui outside=${_v}C=${TEMP_F}F (unit=C)"; break; fi
+        elif [ "$_u" = "2" ]; then                      # tempunit 2 = Fahrenheit
+            if [ "$_v" != "-1" ] && [ "$_v" -ge -50 ] && [ "$_v" -le 140 ]; then TEMP_F=$_v; log "ui outside=${TEMP_F}F (unit=F)"; break; fi
+        elif [ "$_u" = "x" ]; then                      # no tempunit tag: use the configured unit, but never the -1 sentinel
+            if [ "$_v" = "-1" ]; then log "ui temp not ready (-1); waiting"
+            elif [ "$UI_IS_C" = "1" ]; then
+                if [ "$_v" -ge -45 ] && [ "$_v" -le 60 ]; then TEMP_F=$(( _v * 9 / 5 + 32 )); log "ui outside=${_v}C=${TEMP_F}F (cfg C)"; break; fi
             else
-                if [ "$_v" -ge -58 ] && [ "$_v" -le 140 ]; then TEMP_F=$_v; log "ui outside=${TEMP_F}F"; break; fi
-            fi ;;
-        esac ;;
+                if [ "$_v" -ge -50 ] && [ "$_v" -le 140 ]; then TEMP_F=$_v; log "ui outside=${TEMP_F}F (cfg F)"; break; fi
+            fi
+        else                                            # tempunit present but not 1/2 (e.g. -1, 0) = not ready
+            log "ui temp not ready (temp=$_v unit=$_u); waiting"
+        fi ;;
     esac
     sleep 3; i=$((i + 3))
 done
