@@ -23,5 +23,8 @@ type=install
 path=packages/coldstart.heat.zip
 EOF
 rm -f "$ROOT/dist/hkmc-coldstart-heat-USB.zip"
-( cd "$ROOT/dist" && zip -r -X hkmc-coldstart-heat-USB.zip usb-bundle >/dev/null && rm -rf usb-bundle )
+# zip the bundle's contents, not the folder: NEMESIS.data must sit at the top of
+# the zip so extracting it (or nempm unpacking it) puts it at the USB root
+( cd "$TMP" && zip -r -X "$ROOT/dist/hkmc-coldstart-heat-USB.zip" NEMESIS.data packages >/dev/null )
+rm -rf "$TMP"
 echo "wrote dist/hkmc-coldstart-heat-USB.zip (extract to a FAT32/exFAT USB root)"
