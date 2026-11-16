@@ -28,12 +28,14 @@ public class MainActivity extends Activity {
     boolean enabled = true;
     int thresholdF = 50;      // trigger when outside temp is below this
     boolean wheel = true;
+    int wheelThresholdF = 50;  // wheel's own trigger; WHEEL_ALWAYS or more = every start
+    static final int WHEEL_ALWAYS = 140;
     int seatDrv = 0;          // 0..3
     int seatPass = 0;         // 0..3
     boolean uiTempIsC = false; // dashboard shows Celsius (affects fallback temp source)
     boolean diag = false;      // optional persistent diagnostic logging (default off)
 
-    TextView thrLabel, statusLabel;
+    TextView thrLabel, wheelThrLabel, statusLabel;
     Button enBtn, wheelBtn, drvBtn, passBtn, unitBtn, diagBtn;
 
     @Override
@@ -51,7 +53,8 @@ public class MainActivity extends Activity {
 
         root.addView(title("Cold-start Heat"));
         root.addView(hint("When you start the car and it's colder than the "
-                + "threshold, the selected heaters turn on automatically."));
+                + "threshold, the selected seat heaters turn on automatically. The "
+                + "steering wheel has its own threshold, so it can come on every start."));
 
         enBtn = new Button(this);
         enBtn.setOnClickListener(new View.OnClickListener() {
@@ -92,6 +95,22 @@ public class MainActivity extends Activity {
             public void onClick(View v) { wheel = !wheel; refresh(); }
         });
         root.addView(wheelBtn);
+
+        wheelThrLabel = new TextView(this);
+        wheelThrLabel.setTextColor(Color.WHITE);
+        wheelThrLabel.setTextSize(18);
+        root.addView(wheelThrLabel);
+
+        final SeekBar wsb = new SeekBar(this);
+        wsb.setMax(WHEEL_ALWAYS);      // 0..140 F; 140 = every start
+        wsb.setProgress(wheelThresholdF);
+        wsb.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            public void onProgressChanged(SeekBar s, int p, boolean u) { wheelThresholdF = p; updateThr(); }
+            public void onStartTrackingTouch(SeekBar s) {}
+            public void onStopTrackingTouch(SeekBar s) {}
+        });
+        root.addView(wsb);
+        root.addView(hint("Slide all the way right for every start, whatever the temperature."));
 
         drvBtn = new Button(this);
         drvBtn.setOnClickListener(new View.OnClickListener() {
@@ -155,7 +174,11 @@ public class MainActivity extends Activity {
 
     void updateThr() {
         int c = Math.round((thresholdF - 32) * 5f / 9f);
-        thrLabel.setText("Trigger below:  " + thresholdF + " °F  (" + c + " °C)");
+        thrLabel.setText("Seats: trigger below:  " + thresholdF + " °F  (" + c + " °C)");
+        if (wheelThrLabel != null) wheelThrLabel.setText(wheelThresholdF >= WHEEL_ALWAYS
+            ? "Wheel: every start"
+            : "Wheel: trigger below:  " + wheelThresholdF + " °F  ("
+                + Math.round((wheelThresholdF - 32) * 5f / 9f) + " °C)");
     }
 
     void refresh() {
@@ -192,6 +215,7 @@ public class MainActivity extends Activity {
         enabled   = readInt("enabled", 1) == 1;
         thresholdF= clamp(readInt("threshold_f", 50), 0, 80);
         wheel     = readInt("wheel", 1) == 1;
+        wheelThresholdF = clamp(readInt("wheel_threshold_f", thresholdF), 0, WHEEL_ALWAYS);
         seatDrv   = clamp(readInt("seat_drv", 0), 0, 3);
         seatPass  = clamp(readInt("seat_pass", 0), 0, 3);
         uiTempIsC = readInt("ui_temp_is_c", 0) == 1;
@@ -203,15 +227,16 @@ public class MainActivity extends Activity {
             + "; echo " + (enabled ? 1 : 0) + " > " + STATE + "/enabled"
             + "; echo " + thresholdF + " > " + STATE + "/threshold_f"
             + "; echo " + (wheel ? 1 : 0) + " > " + STATE + "/wheel"
+            + "; echo " + wheelThresholdF + " > " + STATE + "/wheel_threshold_f"
             + "; echo " + seatDrv + " > " + STATE + "/seat_drv"
             + "; echo " + seatPass + " > " + STATE + "/seat_pass"
             + "; echo " + (uiTempIsC ? 1 : 0) + " > " + STATE + "/ui_temp_is_c"
             + "; echo " + (diag ? 1 : 0) + " > " + STATE + "/diag";
         String r = runRoot(cmd);
         if (r.startsWith("ERR")) toast("Save failed: " + r);
-        else { toast("Saved"); statusLabel.setText("Saved: below " + thresholdF
-            + "°F → wheel " + (wheel ? "on" : "off")
-            + ", drv " + SEAT[seatDrv] + ", pass " + SEAT[seatPass]
+        else { toast("Saved"); statusLabel.setText("Saved: wheel " + (!wheel ? "off"
+                : wheelThresholdF >= WHEEL_ALWAYS ? "every start" : "below " + wheelThresholdF + "°F")
+            + "; below " + thresholdF + "°F → drv " + SEAT[seatDrv] + ", pass " + SEAT[seatPass]
             + "  [dash " + (uiTempIsC ? "°C" : "°F") + ", diag " + (diag ? "on" : "off") + "]"); }
     }
 

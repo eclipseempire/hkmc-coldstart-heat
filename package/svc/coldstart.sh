@@ -1,7 +1,9 @@
 #!/system/bin/sh
 # coldstart.heat - on each start, if outside temp is below threshold_f, apply
-# the configured heaters (steering wheel + driver/passenger seats) via the VR
-# command channel. Config lives in one-value files written by the UI app.
+# the configured seat heaters; the steering wheel has its own threshold,
+# wheel_threshold_f (absent = threshold_f), and 140 or more means every start,
+# without waiting for a temperature. Config lives in one-value files written by
+# the UI app.
 #
 # Verified actuation on-car (NEEV.USA...260507):
 #   wheel:      service call com.hkmc.vr 16 i32 1              (on)
@@ -41,6 +43,7 @@ seat_enum() { case "$1" in 1) echo 6;; 2) echo 7;; 3) echo 8;; *) echo 2;; esac;
 ENABLED=$(cfg enabled 1)
 THRESH_F=$(cfg threshold_f 50)
 WHEEL=$(cfg wheel 1)          # 0/1
+WHEEL_THRESH_F=$(cfg wheel_threshold_f "$THRESH_F")  # wheel's own threshold; absent = threshold_f
 SEAT_DRV=$(cfg seat_drv 0)    # 0..3
 SEAT_PASS=$(cfg seat_pass 0)  # 0..3
 UI_IS_C=$(cfg ui_temp_is_c 0) # 1 if the dashboard shows Celsius (fallback temp source)
@@ -57,8 +60,15 @@ if [ "$DIAG_ON" = "1" ]; then
     D "RUN wall=$(date '+%Y-%m-%d %H:%M:%S' 2>/dev/null) uptime=$(cut -d. -f1 /proc/uptime 2>/dev/null)s"
 fi
 
-log "start enabled=$ENABLED threshold_f=$THRESH_F wheel=$WHEEL drv=$SEAT_DRV pass=$SEAT_PASS ui_is_c=$UI_IS_C diag=$DIAG_ON"
+log "start enabled=$ENABLED threshold_f=$THRESH_F wheel=$WHEEL wheel_threshold_f=$WHEEL_THRESH_F drv=$SEAT_DRV pass=$SEAT_PASS ui_is_c=$UI_IS_C diag=$DIAG_ON"
 if [ "$ENABLED" != "1" ]; then log "disabled; no action"; _copy_usb; exit 0; fi
+
+# 140 F is the top of the temperature range read below, so a wheel threshold of
+# 140 or more means "every start": the wheel goes on as soon as the VR service
+# is up, with no temperature needed.
+WHEEL_ALWAYS=0
+[ "$WHEEL" = "1" ] && [ "$WHEEL_THRESH_F" -ge 140 ] 2>/dev/null && WHEEL_ALWAYS=1
+wheel_on() { service call com.hkmc.vr 16 i32 1 >/dev/null 2>&1; log "wheel on (exit $?)"; }
 
 # wait for the VR service (framework up)
 i=0
@@ -66,6 +76,14 @@ while [ "$i" -lt "$MAX_WAIT" ]; do
     service check com.hkmc.vr 2>/dev/null | grep -q ': found' && { log "vr ready"; break; }
     sleep 2; i=$((i + 2))
 done
+
+if [ "$WHEEL_ALWAYS" = "1" ]; then
+    log "wheel threshold ${WHEEL_THRESH_F}F: wheel on every start"; wheel_on
+fi
+# nothing left that depends on the temperature: done
+if { [ "$WHEEL" != "1" ] || [ "$WHEEL_ALWAYS" = "1" ]; } && [ "$SEAT_DRV" -le 0 ] 2>/dev/null && [ "$SEAT_PASS" -le 0 ] 2>/dev/null; then
+    log "no seats set; done"; _copy_usb; exit 0
+fi
 
 # newest matching line from the live log, with timestamp.
 # tail-free on purpose: this head unit's shell has no `tail`.
@@ -118,14 +136,19 @@ done
 
 [ -z "$TEMP_F" ] && { log "no valid outside temp within ${MAX_WAIT}s; no action"; _copy_usb; exit 0; }
 
-if [ "$TEMP_F" -ge "$THRESH_F" ]; then
-    log "outside ${TEMP_F}F >= ${THRESH_F}F; no action"; _copy_usb; exit 0
+if [ "$WHEEL" = "1" ] && [ "$WHEEL_ALWAYS" != "1" ]; then
+    if [ "$TEMP_F" -lt "$WHEEL_THRESH_F" ]; then
+        log "outside ${TEMP_F}F < wheel ${WHEEL_THRESH_F}F -> wheel"; wheel_on
+    else
+        log "outside ${TEMP_F}F >= wheel ${WHEEL_THRESH_F}F; wheel stays off"
+    fi
 fi
-log "outside ${TEMP_F}F < ${THRESH_F}F -> applying heaters"
 
-if [ "$WHEEL" = "1" ]; then
-    service call com.hkmc.vr 16 i32 1 >/dev/null 2>&1; log "wheel on (exit $?)"
+if [ "$TEMP_F" -ge "$THRESH_F" ]; then
+    log "outside ${TEMP_F}F >= ${THRESH_F}F; no seat heat"; log "done"; _copy_usb; exit 0
 fi
+log "outside ${TEMP_F}F < ${THRESH_F}F -> applying seat heaters"
+
 if [ "$SEAT_DRV" -gt 0 ] 2>/dev/null; then
     _e=$(seat_enum "$SEAT_DRV")
     service call com.hkmc.micom.usm 213 i32 "$_e" >/dev/null 2>&1; log "drv seat lvl$SEAT_DRV->enum$_e (exit $?)"
